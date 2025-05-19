@@ -1,0 +1,2 @@
+id	submitter_id	entity_type	entity_id	category	classification	created_datetime	status	notes
+8c8595d4-768c-43fc-9fdf-49de2f135bf6	\N	aliquot	23c43fdb-733e-4927-9051-476c5eebfef6	General	Notification	2021-07-07T16:40:15.792003-05:00	Approved	Duplicate item: Replacement RNA Aliquot 

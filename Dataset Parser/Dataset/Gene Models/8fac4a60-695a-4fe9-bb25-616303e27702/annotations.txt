@@ -1,0 +1,2 @@
+id	submitter_id	entity_type	entity_id	category	classification	created_datetime	status	notes
+89acada8-2d5f-426e-8ee8-38b058ae2a19	\N	aliquot	1ea38c56-1c4e-4b22-9384-c644f7f1107a	General	Notification	2021-10-14T08:28:10.081669-05:00	Approved	Duplicate Item: Primary RNA Aliquot

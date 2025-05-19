@@ -1,0 +1,2 @@
+id	submitter_id	entity_type	entity_id	category	classification	created_datetime	status	notes
+4f0e29d1-a88e-4b80-b818-179d657b76f4	\N	aliquot	e9a7f315-2214-4b4e-a9bd-19be335a1d95	General	Notification	2020-11-18T16:26:01.621191-06:00	Approved	Duplicate item: Replacement RNA Distribution
