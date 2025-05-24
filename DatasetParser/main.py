@@ -4,12 +4,22 @@ from os.path import  isfile, join
 import pandas as pd
 from typing import Callable
 
+# NOTE: Make sure you run the project from the DatesetParser folder
+
 # Path to the dataset folder
-basePath: str = '.\\Dataset\\' 
+basePath: str = './Dataset/' 
+# Path to settings
+settingsPath: str = basePath + 'Settings/'
 # Path to the gene models
 geneModelsPath: str = basePath + 'Gene Models'
 # Path to the clinical data
 clinicalPath: str = basePath + 'clinical.tsv'
+# Path to gdc data files
+inputPath: str = basePath + 'OriginalFiles/'
+# Path to the parsed files
+outputPath: str = basePath + 'ProcessedFiles/'
+# Path to the metadata file
+metadataPath: str = settingsPath + 'metadata.cart.2025-05-22.json'
 
 # Gene-model:
 geneModel = "# gene-model: GENCODE v36\n"
@@ -50,9 +60,6 @@ def removeSegmentsFromPath(path: str, count: int = 1, hasTrailingSlash: bool = T
     path = '\\'.join(segments)
     # Adding a trailing slash if needed
     return path + ('\\' if hasTrailingSlash else '')
-
-# Reading the clinical data
-clinicalData = pd.read_csv(clinicalPath, delimiter="\t")
 
 def filterGeneModel(path: str) -> tuple[pd.DataFrame, str]:
     with open(path) as f:
@@ -99,7 +106,44 @@ def readTsvFile(filePath: str) -> None:
     # length = sum(1 for _ in open(filePath))
     # lengths.add(length)
 
-forEachDataSetFolder(geneModelsPath, lambda folder: forFirstFileWithExtension(folder, readTsvFile))
+# Reading the metadata to create folders for each case
+def readMetadataFile(path: str) -> dict:
+    import json
+    with open(path) as f:
+        d = json.load(f)
+        return d
+    
+def mergeCaseData(metadataPath: str) -> None:
+    global outputPath, inputPath
+    import os
+    import shutil
+
+    data = readMetadataFile(metadataPath)
+    for file in data:
+        # Creating the output folder for the case
+        caseId = file['associated_entities'][0]['case_id']
+        os.makedirs(outputPath + caseId, exist_ok=True)
+
+        # Getting the file name and folder name
+        fileName = file['file_name']
+        folderName = file['file_id']
+        dataFile = inputPath + folderName + '/' + fileName
+        outputFile = outputPath + caseId + '/' + fileName
+
+        if not os.path.isfile(dataFile):
+            print("File not found: " + dataFile)
+            continue
+
+        # Copying the file to the output folder
+        shutil.copyfile(dataFile, outputFile)
+
+        print(caseId)    
+
+# Reading the clinical data
+# clinicalData = pd.read_csv(clinicalPath, delimiter="\t")        
+
+mergeCaseData(metadataPath)
+# forEachDataSetFolder(geneModelsPath, lambda folder: forFirstFileWithExtension(folder, readTsvFile))
 
 # Print the headers
 print("Headers:" + str(len(headers)))
