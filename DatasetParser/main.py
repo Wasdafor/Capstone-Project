@@ -101,8 +101,11 @@ def filterClinicalData(originalPath: str, storePath: str, caseId: str) -> pd.Dat
     # Filtering the clinical data to only include the relevant columns
     columnsToKeep = ['histological_type', 'icd_o_3_histology']
 
-    # Saving the filtered data to a new file
-    clinicalData = clinicalData[columnsToKeep].drop(index=0)
+    # Checking if the columns exist in the dataframe
+    if not set(columnsToKeep).issubset(clinicalData.columns):
+        print("Some columns are missing in the clinical data. Please check the file.")
+        return pd.DataFrame()
+
     clinicalData['case_id'] = caseId
     clinicalData.to_csv(storePath, index=False, header=True)
 
@@ -159,12 +162,10 @@ def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame) -> pd.DataFram
             dataFrame = filterClinicalData(dataFile, outputFile, caseId)
 
         # Adding the data to the main dataframe
-        mainDataFrame = pd.concat([mainDataFrame, dataFrame], ignore_index=True)    
+        if dataFrame is not None and not dataFrame.empty:
+            mainDataFrame = pd.concat([mainDataFrame, dataFrame], ignore_index=True)    
 
         print("Processed: " + dataFile + " -> " + outputFile)    
-
-        # Copying the file to the output folder
-        # shutil.copyfile(dataFile, outputFile)
 
         # print(caseId)    
     return mainDataFrame     
