@@ -24,10 +24,6 @@ metadataPath: str = settingsPath + 'metadata.cart.2025-05-22.json'
 # Gene-model:
 geneModel = "# gene-model: GENCODE v36\n"
 
-# Gene output file
-geneOutputFile = 'lncRna.csv'
-clinicalOutputFile = 'clinical.csv'
-
 # Tracking the different heafers and file lengths
 headers: dict = dict()
 lengths: set = set()
@@ -61,8 +57,18 @@ def removeSegmentsFromPath(path: str, count: int = 1, hasTrailingSlash: bool = T
     # Adding a trailing slash if needed
     return path + ('\\' if hasTrailingSlash else '')
 
-def filterGeneModel(path: str) -> tuple[pd.DataFrame, str]:
-    with open(path) as f:
+def updateFileExtension(path: str, newExtension: str) -> str:
+    # Splitting the path into segments
+    segments = str.split(path, '.')
+    # Removing the last segment (the current extension)
+    segments = segments[0:-1]
+    # Adding the new extension
+    segments.append(newExtension)
+    # Joining the remaining segments back together
+    return '.'.join(segments)
+
+def filterGeneModel(originalPath: str, storePath: str) -> tuple[pd.DataFrame, str]:
+    with open(originalPath) as f:
         header = f.readline()
 
         # Verifying if the first line has the correct gene model
@@ -71,26 +77,34 @@ def filterGeneModel(path: str) -> tuple[pd.DataFrame, str]:
             header = f.readline()
 
             # Reading the file into a pandas dataframe
-            frame = pd.read_csv(path, delimiter="\t", skiprows=1)
+            frame = pd.read_csv(originalPath, delimiter="\t", skiprows=1)
 
             # Filtering the dataframe to only include lncRNA
             frame = frame[frame['gene_type'] == 'lncRNA']
 
-            # Saving the filtered data to a new file
-            outputPath = removeSegmentsFromPath(path) + geneOutputFile
-            frame.to_csv(outputPath, index=False, header=True)
+            # Filtering the clinical data to only include the relevant columns
+            columnsToKeep = ['gene_id', 'gene_name', 'unstranded', 'tpm_unstranded']
+
+            flattendFrame = {}
+            for _, row in frame.iterrows():
+                name = row['gene_name']
+                flattendFrame[name + '_unstranded'] = row['unstranded']
+                flattendFrame[name + '_tpm_unstranded'] = row['tpm_unstranded']   
+            # Storing the filterd file
+            pd.DataFrame(flattendFrame, index=[0, len(flattendFrame)]).to_csv(storePath, index=False, header=True)
         return frame, header    
 
-def filterClinicalData(path: str) -> pd.DataFrame:
-    global clinicalData
-    caseId = path.split('\\')[-2]
+def filterClinicalData(originalPath: str, storePath: str, caseId: str) -> pd.DataFrame:
+    # Loading the clinical data from the original file
+    clinicalData = pd.read_xml(originalPath)
 
-    # Filtering the dataframe to only include lncRNA
-    clinicalData = clinicalData[clinicalData['cases.case_id'] == caseId]
+    # Filtering the clinical data to only include the relevant columns
+    columnsToKeep = ['histological_type', 'icd_o_3_histology']
 
     # Saving the filtered data to a new file
-    outputPath = removeSegmentsFromPath(path) + clinicalOutputFile
-    clinicalData.to_csv(outputPath, index=False, header=True)
+    clinicalData = clinicalData[columnsToKeep].drop(index=0)
+    clinicalData['case_id'] = caseId
+    clinicalData.to_csv(storePath, index=False, header=True)
 
     return clinicalData
 
@@ -112,11 +126,11 @@ def readMetadataFile(path: str) -> dict:
     with open(path) as f:
         d = json.load(f)
         return d
-    
-def mergeCaseData(metadataPath: str) -> None:
+     
+def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame) -> pd.DataFrame:
     global outputPath, inputPath
     import os
-    import shutil
+    # import shutil
 
     data = readMetadataFile(metadataPath)
     for file in data:
@@ -127,30 +141,35 @@ def mergeCaseData(metadataPath: str) -> None:
         # Getting the file name and folder name
         fileName = file['file_name']
         folderName = file['file_id']
+        fileFormat = file['data_format']
         dataFile = inputPath + folderName + '/' + fileName
-        outputFile = outputPath + caseId + '/' + fileName
-
+        outputFile = updateFileExtension(outputPath + caseId + '/' + fileName, "csv")
+  
+        # Checking if the file exists (Data set may be corrupted or incomplete)
         if not os.path.isfile(dataFile):
             print("File not found: " + dataFile)
             continue
 
+         # Handling the different file types
+        dataFrame = None
+        if fileFormat == 'TSV':
+            continue
+            filterGeneModel(dataFile, outputFile) 
+        else:  
+            dataFrame = filterClinicalData(dataFile, outputFile, caseId)
+
+        # Adding the data to the main dataframe
+        mainDataFrame = pd.concat([mainDataFrame, dataFrame], ignore_index=True)    
+
+        print("Processed: " + dataFile + " -> " + outputFile)    
+
         # Copying the file to the output folder
-        shutil.copyfile(dataFile, outputFile)
+        # shutil.copyfile(dataFile, outputFile)
 
-        print(caseId)    
+        # print(caseId)    
+    return mainDataFrame     
 
-# Reading the clinical data
-# clinicalData = pd.read_csv(clinicalPath, delimiter="\t")        
+mainDataFrame = mergeCaseData(metadataPath, pd.DataFrame())
 
-mergeCaseData(metadataPath)
-# forEachDataSetFolder(geneModelsPath, lambda folder: forFirstFileWithExtension(folder, readTsvFile))
-
-# Print the headers
-print("Headers:" + str(len(headers)))
-for key, value in headers.items():
-    print(key, value)
-
-# Print the lengths
-print("\nLengths:" + str(len(lengths)))
-for length in lengths:
-    print(length)
+# Storing the main data frame to a file
+mainDataFrame.to_csv(outputPath + 'merged_data.csv', index=False, header=True)
