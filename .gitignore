@@ -1,1 +1,2 @@
-DatasetParser/Dataset/Files/*
+DatasetParser/Dataset/ProcessedFiles/*
+.idea/
