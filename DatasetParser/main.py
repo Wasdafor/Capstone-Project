@@ -1,4 +1,3 @@
-import csv
 from os import listdir
 from os.path import  isfile, join
 import pandas as pd
@@ -67,14 +66,14 @@ def updateFileExtension(path: str, newExtension: str) -> str:
     # Joining the remaining segments back together
     return '.'.join(segments)
 
-def filterGeneModel(originalPath: str, storePath: str) -> tuple[pd.DataFrame, str]:
-    with open(originalPath) as f:
-        header = f.readline()
+def processGeneData(originalPath: str) -> tuple[pd.DataFrame | None, str]:
+    with open(originalPath) as file:
+        header = file.readline()
 
         # Verifying if the first line has the correct gene model
         if header == geneModel:
             # Updating the header variable
-            header = f.readline()
+            header = file.readline()
 
             # Reading the file into a pandas dataframe
             frame = pd.read_csv(originalPath, delimiter="\t", skiprows=1)
@@ -82,19 +81,16 @@ def filterGeneModel(originalPath: str, storePath: str) -> tuple[pd.DataFrame, st
             # Filtering the dataframe to only include lncRNA
             frame = frame[frame['gene_type'] == 'lncRNA']
 
-            # Filtering the clinical data to only include the relevant columns
-            columnsToKeep = ['gene_id', 'gene_name', 'unstranded', 'tpm_unstranded']
-
             flattendFrame = {}
             for _, row in frame.iterrows():
                 name = row['gene_name']
                 flattendFrame[name + '_unstranded'] = row['unstranded']
                 flattendFrame[name + '_tpm_unstranded'] = row['tpm_unstranded']   
-            # Storing the filterd file
-            pd.DataFrame(flattendFrame, index=[0, len(flattendFrame)]).to_csv(storePath, index=False, header=True)
+
+            frame = pd.DataFrame(flattendFrame, index=[0, len(flattendFrame)])
         return frame, header    
 
-def filterClinicalData(originalPath: str, storePath: str, caseId: str) -> pd.DataFrame:
+def processClinicalData(originalPath: str) -> pd.DataFrame | None:
     # Loading the clinical data from the original file
     clinicalData = pd.read_xml(originalPath)
 
@@ -104,24 +100,12 @@ def filterClinicalData(originalPath: str, storePath: str, caseId: str) -> pd.Dat
     # Checking if the columns exist in the dataframe
     if not set(columnsToKeep).issubset(clinicalData.columns):
         print("Some columns are missing in the clinical data. Please check the file.")
-        return pd.DataFrame()
-
-    clinicalData['case_id'] = caseId
-    clinicalData.to_csv(storePath, index=False, header=True)
-
+        return None
+    
+    # Removing e nb mpty row, that happens to be added when reading the xml file
+    clinicalData.drop(index=1, inplace=True)
+  
     return clinicalData
-
-def readTsvFile(filePath: str) -> None:
-    (frame, header) = filterGeneModel(filePath)
-    clinicalFrame = filterClinicalData(filePath)
-
-    # if header in headers.keys():
-    #     headers[header] += 1
-    # else:
-    #     headers[header] = 1
-
-    # length = sum(1 for _ in open(filePath))
-    # lengths.add(length)
 
 # Reading the metadata to create folders for each case
 def readMetadataFile(path: str) -> dict:
@@ -130,21 +114,20 @@ def readMetadataFile(path: str) -> dict:
         d = json.load(f)
         return d
      
-def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame) -> pd.DataFrame:
+def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame, storeSubfiles:bool = True) -> pd.DataFrame:
     global outputPath, inputPath
     import os
-    # import shutil
-
     data = readMetadataFile(metadataPath)
     for file in data:
         # Creating the output folder for the case
         caseId = file['associated_entities'][0]['case_id']
-        os.makedirs(outputPath + caseId, exist_ok=True)
 
-        # Getting the file name and folder name
+        # Retrieving the file name and folder name
         fileName = file['file_name']
         folderName = file['file_id']
         fileFormat = file['data_format']
+
+        # Creating the storage and output paths
         dataFile = inputPath + folderName + '/' + fileName
         outputFile = updateFileExtension(outputPath + caseId + '/' + fileName, "csv")
   
@@ -156,14 +139,23 @@ def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame) -> pd.DataFram
          # Handling the different file types
         dataFrame = None
         if fileFormat == 'TSV':
-            continue
-            filterGeneModel(dataFile, outputFile) 
+            # continue
+            (dataFrame, _) = processGeneData(dataFile) 
         else:  
-            dataFrame = filterClinicalData(dataFile, outputFile, caseId)
+            dataFrame = processClinicalData(dataFile)
 
-        # Adding the data to the main dataframe
+          
+
+        # Adding the data to the main dataframe and storing the file
         if dataFrame is not None and not dataFrame.empty:
-            mainDataFrame = pd.concat([mainDataFrame, dataFrame], ignore_index=True)    
+            dataFrame['case_id'] = pd.Series([caseId])
+            if 'case_id' in mainDataFrame.columns and not mainDataFrame[mainDataFrame['case_id'] == caseId].empty:
+                pd.merge(dataFrame, mainDataFrame, on="case_id")  
+            else: 
+                mainDataFrame = pd.concat([mainDataFrame, dataFrame], ignore_index=True)      
+            # Only storing the subfiles if the flag is set
+            if storeSubfiles:
+                dataFrame.to_csv(outputFile, index=False, header=True)
 
         print("Processed: " + dataFile + " -> " + outputFile)    
 
@@ -171,6 +163,7 @@ def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame) -> pd.DataFram
     return mainDataFrame     
 
 mainDataFrame = mergeCaseData(metadataPath, pd.DataFrame())
+print(mainDataFrame)
 
 # Storing the main data frame to a file
 mainDataFrame.to_csv(outputPath + 'merged_data.csv', index=False, header=True)
