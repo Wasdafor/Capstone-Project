@@ -1,7 +1,4 @@
-from os import listdir
-from os.path import  isfile, join
 import pandas as pd
-from typing import Callable
 
 # NOTE: Make sure you run the project from the DatesetParser folder
 
@@ -9,10 +6,6 @@ from typing import Callable
 basePath: str = './Dataset/' 
 # Path to settings
 settingsPath: str = basePath + 'Settings/'
-# Path to the gene models
-geneModelsPath: str = basePath + 'Gene Models'
-# Path to the clinical data
-clinicalPath: str = basePath + 'clinical.tsv'
 # Path to gdc data files
 inputPath: str = basePath + 'OriginalFiles/'
 # Path to the parsed files
@@ -22,39 +15,6 @@ metadataPath: str = settingsPath + 'metadata.cart.2025-05-22.json'
 
 # Gene-model:
 geneModel = "# gene-model: GENCODE v36\n"
-
-# Tracking the different heafers and file lengths
-headers: dict = dict()
-lengths: set = set()
-
-# Running code for each sub folder in a given folder
-def forEachDataSetFolder(path: str, func: Callable[[str], None]) -> None:
-    # Looping through each file in the directory
-    for file in listdir(path):
-        folder = join(path, file)
-        # If the path is not a file, it is a folder
-        if not isfile(folder):       
-            func(folder)
-
-# Running code for the first file in each sub folder
-def forFirstFileWithExtension(path: str, func: Callable[[str], None], extension = '.tsv') -> None:
-    # Looping through each file in the directory
-    for file in listdir(path):
-        filePath = join(path, file)
-        # If the path is a file trigger the function and break
-        if isfile(filePath) and filePath.endswith(extension):
-            func(filePath)
-            break  
-
-def removeSegmentsFromPath(path: str, count: int = 1, hasTrailingSlash: bool = True) -> str:
-    # Splitting the path into segments
-    segments = str.split(path, '\\')
-    # Removing the last count segments
-    segments = segments[0:-count]
-    # Joining the remaining segments back together
-    path = '\\'.join(segments)
-    # Adding a trailing slash if needed
-    return path + ('\\' if hasTrailingSlash else '')
 
 def updateFileExtension(path: str, newExtension: str) -> str:
     # Splitting the path into segments
@@ -76,36 +36,50 @@ def processGeneData(originalPath: str) -> tuple[pd.DataFrame | None, str]:
             header = file.readline()
 
             # Reading the file into a pandas dataframe
-            frame = pd.read_csv(originalPath, delimiter="\t", skiprows=1)
+            dataframe = pd.read_csv(originalPath, delimiter="\t", skiprows=1)
 
             # Filtering the dataframe to only include lncRNA
-            frame = frame[frame['gene_type'] == 'lncRNA']
+            dataframe = dataframe[dataframe['gene_type'] == 'lncRNA']
 
-            flattendFrame = {}
-            for _, row in frame.iterrows():
-                name = row['gene_name']
-                flattendFrame[name + '_unstranded'] = row['unstranded']
-                flattendFrame[name + '_tpm_unstranded'] = row['tpm_unstranded']   
+            # Creating the columns for unstranded and tpm values
+            dataframe['unstranded_col'] = dataframe['gene_name'] + '_unstranded'
+            dataframe['tpm_col'] = dataframe['gene_name'] + '_tpm_unstranded'
 
-            frame = pd.DataFrame(flattendFrame, index=[0, len(flattendFrame)])
-        return frame, header    
+            # Build a dictionary with new column names and their values
+            unstranded_vals = dict(zip(dataframe['unstranded_col'], dataframe['unstranded']))
+            tpm_vals = dict(zip(dataframe['tpm_col'], dataframe['tpm_unstranded']))
+
+            # Merge the two into one row using a dictionary
+            combined = {**unstranded_vals, **tpm_vals}
+
+            # Create a new single-row DataFrame from the combined dict
+            result_df = pd.DataFrame([combined])
+
+        return result_df, header    
 
 def processClinicalData(originalPath: str) -> pd.DataFrame | None:
     # Loading the clinical data from the original file
-    clinicalData = pd.read_xml(originalPath)
+    dataFrame = pd.read_xml(originalPath)
+
+    # Flattening the XML data
+    firstRow = dataFrame.loc[0]
+    for item in dataFrame.columns:
+        # Checking if the column is empty and removing it
+        if firstRow[item] is None or firstRow[item] == '':
+            dataFrame.loc[0, item] = dataFrame.loc[1, item]  # Copying the value from the second row
 
     # Filtering the clinical data to only include the relevant columns
     columnsToKeep = ['histological_type', 'icd_o_3_histology']
 
     # Checking if the columns exist in the dataframe
-    if not set(columnsToKeep).issubset(clinicalData.columns):
+    if not set(columnsToKeep).issubset(dataFrame.columns):
         print("Some columns are missing in the clinical data. Please check the file.")
         return None
     
-    # Removing e nb mpty row, that happens to be added when reading the xml file
-    clinicalData.drop(index=1, inplace=True)
+    # The xml file is not parsed flat but in two rows, so we need to flatten it
+    dataFrame.drop(index=1, inplace=True)
   
-    return clinicalData
+    return dataFrame
 
 # Reading the metadata to create folders for each case
 def readMetadataFile(path: str) -> dict:
@@ -114,9 +88,16 @@ def readMetadataFile(path: str) -> dict:
         d = json.load(f)
         return d
      
-def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame, storeSubfiles:bool = True) -> pd.DataFrame:
-    global outputPath, inputPath
+def mergeCaseData(metadataPath: str, inputPath: str, outputPath: str, storeSubfiles:bool = True) -> pd.DataFrame:
     import os
+
+    # Initializing the two main data frames
+    dataFrameColumns = ['case_id']
+    clinicalDataFrame = pd.DataFrame(columns=dataFrameColumns)
+    geneDataFrame = pd.DataFrame(columns=dataFrameColumns)
+
+    fileCount = 0
+
     data = readMetadataFile(metadataPath)
     for file in data:
         # Creating the output folder for the case
@@ -126,6 +107,9 @@ def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame, storeSubfiles:
         fileName = file['file_name']
         folderName = file['file_id']
         fileFormat = file['data_format']
+
+        fileCount += 1
+        print(f"Processing file {fileCount}: {fileName} for case {caseId}")
 
         # Creating the storage and output paths
         dataFile = inputPath + folderName + '/' + fileName
@@ -144,25 +128,24 @@ def mergeCaseData(metadataPath: str, mainDataFrame: pd.DataFrame, storeSubfiles:
         else:  
             dataFrame = processClinicalData(dataFile)
 
-          
-
         # Adding the data to the main dataframe and storing the file
         if dataFrame is not None and not dataFrame.empty:
-            dataFrame['case_id'] = pd.Series([caseId])
-            if 'case_id' in mainDataFrame.columns and not mainDataFrame[mainDataFrame['case_id'] == caseId].empty:
-                pd.merge(dataFrame, mainDataFrame, on="case_id")  
-            else: 
-                mainDataFrame = pd.concat([mainDataFrame, dataFrame], ignore_index=True)      
+            dataFrame['case_id'] = caseId
+         
+            # Adding the loaded data frame to the main data frame
+            if fileFormat == 'TSV':
+                geneDataFrame = pd.concat([geneDataFrame, dataFrame])
+            else:  
+                clinicalDataFrame = pd.concat([clinicalDataFrame, dataFrame])
+             
             # Only storing the subfiles if the flag is set
             if storeSubfiles:
                 dataFrame.to_csv(outputFile, index=False, header=True)
 
-        print("Processed: " + dataFile + " -> " + outputFile)    
 
-        # print(caseId)    
-    return mainDataFrame     
+    return pd.merge(clinicalDataFrame, geneDataFrame, on="case_id", how="inner")      
 
-mainDataFrame = mergeCaseData(metadataPath, pd.DataFrame())
+mainDataFrame = mergeCaseData(metadataPath, inputPath, outputPath, True)
 print(mainDataFrame)
 
 # Storing the main data frame to a file
