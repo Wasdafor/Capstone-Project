@@ -114,6 +114,10 @@ def mergeCaseData(metadataPath: str, inputPath: str, outputPath: str, storeSubfi
         # Creating the storage and output paths
         dataFile = inputPath + folderName + '/' + fileName
         outputFile = updateFileExtension(outputPath + caseId + '/' + fileName, "csv")
+
+        # Creating the output folder if it does not exist
+        if not os.path.exists(outputPath + caseId):
+            os.makedirs(outputPath + caseId)
   
         # Checking if the file exists (Data set may be corrupted or incomplete)
         if not os.path.isfile(dataFile):
