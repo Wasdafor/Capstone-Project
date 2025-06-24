@@ -1,2 +1,0 @@
-id	submitter_id	entity_type	entity_id	category	classification	created_datetime	status	notes
-b6c3108a-8eb2-4406-bb2d-9573be283fda	\N	aliquot	e1a91e29-39a5-4a32-aac4-d926ddd3db07	General	Notification	2021-10-14T08:28:10.081669-05:00	Approved	Duplicate Item: Recurrent RNA Aliquot
